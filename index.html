@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Hand Gesture Interaction</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+      }
+      /* Make the video mirrored for a natural feel */
+      .input_video {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        transform: scaleX(-1);
+        z-index: 1;
+      }
+      /* Overlay the 3D canvas on top of the video */
+      #threejs-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 2;
+        pointer-events: none; /* Let clicks pass through if needed */
+      }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-family: sans-serif;
+        font-size: 24px;
+        z-index: 3;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading">Loading Camera & AI Models...</div>
+    <video class="input_video" autoplay playsinline></video>
+    <canvas id="threejs-canvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <script>
+      // ==========================================
+      // 1. THREE.JS SETUP (The 3D Project)
+      // ==========================================
+      const canvas = document.getElementById('threejs-canvas');
+
+      // Setup Scene, Camera, and Renderer with transparency (alpha: true)
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      const renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        alpha: true,
+        antialias: true,
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // Add lighting
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(2, 2, 5);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x404040));
+
+      // Create a 3D Cube
+      const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+      const material = new THREE.MeshPhongMaterial({
+        color: 0x00ff00,
+        wireframe: false,
+      });
+      const cube = new THREE.Mesh(geometry, material);
+      scene.add(cube);
+
+      camera.position.z = 10;
+
+      // Render loop
+      function animate() {
+        requestAnimationFrame(animate);
+        cube.rotation.x += 0.01;
+        cube.rotation.y += 0.01;
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // ==========================================
+      // 2. MEDIAPIPE SETUP (Hand Tracking)
+      // ==========================================
+      const videoElement = document.querySelector('.input_video');
+      const loadingText = document.getElementById('loading');
+
+      // Initialize MediaPipe Hands
+      const hands = new Hands({
+        locateFile: (file) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        },
+      });
+
+      hands.setOptions({
+        maxNumHands: 1, // Track one hand for simplicity
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7,
+      });
+
+      // What to do when a hand is detected
+      hands.onResults((results) => {
+        loadingText.style.display = 'none'; // Hide loading text once tracking starts
+
+        if (
+          results.multiHandLandmarks &&
+          results.multiHandLandmarks.length > 0
+        ) {
+          const landmarks = results.multiHandLandmarks[0];
+
+          // Get the index finger tip (Landmark 8)
+          const indexFinger = landmarks[8];
+
+          // Map MediaPipe coordinates (0 to 1) to Three.js coordinates
+          // Note: We invert the X axis because the video is mirrored via CSS
+          const x = -(indexFinger.x - 0.5) * 20;
+          const y = -(indexFinger.y - 0.5) * 15;
+
+          // Update the 3D cube's position
+          // We use lerp (linear interpolation) for smooth movement, but direct assignment works too
+          cube.position.x += (x - cube.position.x) * 0.2;
+          cube.position.y += (y - cube.position.y) * 0.2;
+
+          // Change color to red if the hand is closed (Basic gesture check)
+          // If the tip of the index finger is below the bottom joint of the index finger (Landmark 5)
+          if (landmarks[8].y > landmarks[5].y) {
+            cube.material.color.setHex(0xff0000); // Closed/Click
+          } else {
+            cube.material.color.setHex(0x00ff00); // Open
+          }
+        }
+      });
+
+      // ==========================================
+      // 3. WEBCAM SETUP
+      // ==========================================
+      const cameraUtils = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480,
+      });
+      cameraUtils.start();
+    </script>
+  </body>
+</html>
