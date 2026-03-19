@@ -2,17 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Farming Tycoon 3D</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, sans-serif; touch-action: none; }
         
         #threejs-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
 
+        /* Mobile-friendly Webcam */
         .input_video {
             position: absolute; bottom: 20px; right: 20px;
             width: 240px; height: 180px; object-fit: cover; transform: scaleX(-1);
             border: 3px solid #fff; border-radius: 12px; z-index: 3;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
 
         /* UI Styling */
@@ -24,7 +26,16 @@
         .gold-text { color: #FFD700; }
         .money-text { color: #00FF55; font-size: 36px; }
 
-        /* Status Box */
+        /* Instructions & Status */
+        #instruction-bar {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 165, 0, 0.9); color: white; padding: 10px 20px;
+            border-radius: 30px; font-size: 20px; font-weight: bold; z-index: 3;
+            text-align: center; border: 2px solid white;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } 100% { transform: translateX(-50%) scale(1); } }
+
         #status-box {
             position: absolute; bottom: 20px; left: 20px; background: rgba(0, 0, 0, 0.7);
             color: white; padding: 15px; border-radius: 8px; font-size: 20px; z-index: 3;
@@ -32,13 +43,13 @@
 
         /* Interactive Buttons */
         .btn-zone {
-            position: absolute; right: 20px; width: 150px; height: 130px;
-            border: 4px solid white; border-radius: 20px;
+            position: absolute; right: 20px; width: 150px; height: 120px;
+            border: 4px solid white; border-radius: 15px;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: white; font-size: 20px; font-weight: bold; z-index: 3; text-align: center;
+            color: white; font-size: 18px; font-weight: bold; z-index: 3; text-align: center;
         }
-        #sell-zone { top: 20px; background: rgba(255, 50, 50, 0.8); box-shadow: 0 0 20px rgba(255,0,0,0.5); }
-        #buy-zone { top: 170px; background: rgba(50, 100, 255, 0.8); box-shadow: 0 0 20px rgba(0,100,255,0.5); }
+        #sell-zone { top: 20px; background: rgba(255, 50, 50, 0.8); box-shadow: 0 0 15px rgba(255,0,0,0.5); }
+        #buy-zone { top: 160px; background: rgba(50, 100, 255, 0.8); box-shadow: 0 0 15px rgba(0,100,255,0.5); }
         
         .progress-bg { width: 80%; height: 15px; background: #222; border-radius: 10px; margin-top: 10px; overflow: hidden; }
         .progress-bar { width: 0%; height: 100%; }
@@ -52,14 +63,31 @@
             transform: translate(-50%, -50%); z-index: 10; pointer-events: none;
             box-shadow: 0 0 10px rgba(0,0,0,0.5); display: none;
         }
+
+        /* MOBILE RESPONSIVE RULES */
+        @media (max-width: 768px) {
+            .stat { font-size: 16px; }
+            .money-text { font-size: 24px; }
+            #instruction-bar { font-size: 14px; top: 10px; width: 80vw; }
+            
+            .btn-zone { width: 100px; height: 90px; font-size: 12px; right: 10px; border-width: 2px;}
+            #sell-zone { top: 60px; }
+            #buy-zone { top: 160px; }
+            
+            .input_video { width: 120px; height: 160px; bottom: 10px; right: 10px; }
+            #status-box { font-size: 14px; bottom: 10px; left: 10px; max-width: 50vw; padding: 10px; }
+            #ui-layer { top: 10px; left: 10px; }
+        }
     </style>
 </head>
 <body>
 
+    <div id="instruction-bar">🏃‍♂️ ACTION: Squat down & pull hands up to harvest!</div>
+
     <div id="ui-layer">
-        <div class="stat">Garden Level: <span id="garden-level">1</span></div>
+        <div class="stat">Plant: <span id="garden-name">Carrot</span></div>
         <div class="stat money-text">Bank: $<span id="money">0</span></div>
-        <div class="stat">Normal Crops: <span id="inv-normal">0</span></div>
+        <div class="stat">Crops: <span id="inv-normal">0</span></div>
         <div class="stat gold-text">Gold Crops: <span id="inv-gold">0</span></div>
     </div>
     
@@ -69,11 +97,11 @@
     </div>
 
     <div id="buy-zone" class="btn-zone">
-        NEW GARDEN<br>$<span id="garden-cost">250</span>
+        UPGRADE<br>$<span id="garden-cost">500</span>
         <div class="progress-bg"><div id="buy-bar" class="progress-bar"></div></div>
     </div>
 
-    <div id="status-box">Loading AI...</div>
+    <div id="status-box">Loading AI Camera...</div>
     <div id="cursor"></div>
 
     <video class="input_video" autoplay playsinline></video>
@@ -86,12 +114,19 @@
 
     <script>
         // ==========================================
-        // 1. GAME ECONOMY & PROGRESSION
+        // 1. GAME ECONOMY & LEVELS
         // ==========================================
+        const levels = [
+            { name: "Carrot", price: 5, upgradeCost: 500, geo: new THREE.ConeGeometry(0.4, 1.5, 12), color: 0xff8800, ground: 0x5C4033 },
+            { name: "Potato", price: 15, upgradeCost: 800, geo: new THREE.DodecahedronGeometry(0.5, 0), color: 0x8B4513, ground: 0x4A3525 },
+            { name: "Tomato", price: 25, upgradeCost: 1200, geo: new THREE.SphereGeometry(0.5, 16, 16), color: 0xff3333, ground: 0x3B2F2F },
+            { name: "Watermelon", price: 50, upgradeCost: 1500, geo: new THREE.SphereGeometry(0.8, 16, 16), color: 0x006400, ground: 0x2E1E1E },
+            { name: "Banana", price: 100, upgradeCost: null, geo: new THREE.CapsuleGeometry(0.25, 1.2, 4, 12), color: 0xFFE135, ground: 0x1A1111 }
+        ];
+
+        let currentLevel = 0; // Starts at 0 (Carrot)
         let inventory = { normal: 0, gold: 0 };
         let money = 0;
-        let currentGardenLevel = 1; // 1 = Carrots, 2 = Radishes, 3 = Eggplants
-        let nextGardenCost = 250;
         
         let sellHoverTimer = 0;
         let buyHoverTimer = 0;
@@ -100,13 +135,14 @@
         const uiNormal = document.getElementById('inv-normal');
         const uiGold = document.getElementById('inv-gold');
         const uiMoney = document.getElementById('money');
-        const uiLevel = document.getElementById('garden-level');
+        const uiGardenName = document.getElementById('garden-name');
         const uiCost = document.getElementById('garden-cost');
         const statusBox = document.getElementById('status-box');
         
         const sellBar = document.getElementById('sell-bar');
         const buyBar = document.getElementById('buy-bar');
         const cursorEl = document.getElementById('cursor');
+        const buyZone = document.getElementById('buy-zone');
 
         // ==========================================
         // 2. THREE.JS SETUP & GENERATION
@@ -122,60 +158,53 @@
         sun.position.set(10, 20, 10);
         scene.add(sun);
 
-        const groundMat = new THREE.MeshPhongMaterial({ color: 0x5C4033 });
+        const groundMat = new THREE.MeshPhongMaterial({ color: levels[0].ground });
         const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), groundMat);
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        let cropsArray = []; // Stores the active 3D plants
+        let cropsArray = []; 
         const leafMat = new THREE.MeshPhongMaterial({ color: 0x228B22 });
+        const goldMat = new THREE.MeshPhongMaterial({ color: 0xFFD700, shininess: 100, specular: 0xffffff });
 
         function plantGarden() {
-            // 1. Clear old crops from the 3D scene
+            // Clear old crops
             cropsArray.forEach(crop => scene.remove(crop));
             cropsArray = [];
 
-            // 2. Define geometry and colors based on garden level
-            let cropGeo, normalMat, goldMat;
-            goldMat = new THREE.MeshPhongMaterial({ color: 0xFFD700, shininess: 100, specular: 0xffffff }); // Always shiny
+            const currentData = levels[currentLevel];
+            groundMat.color.setHex(currentData.ground); // Update dirt color
 
-            if (currentGardenLevel === 1) { // Carrots
-                cropGeo = new THREE.ConeGeometry(0.4, 1.5, 12);
-                normalMat = new THREE.MeshPhongMaterial({ color: 0xff8800 }); // Orange
-                groundMat.color.setHex(0x5C4033); // Brown dirt
-            } 
-            else if (currentGardenLevel === 2) { // Radishes
-                cropGeo = new THREE.SphereGeometry(0.6, 12, 12);
-                normalMat = new THREE.MeshPhongMaterial({ color: 0xFF1493 }); // Deep Pink
-                groundMat.color.setHex(0x3B2F2F); // Darker dirt
-            } 
-            else { // Eggplants (Level 3+)
-                cropGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 12);
-                normalMat = new THREE.MeshPhongMaterial({ color: 0x800080 }); // Purple
-                groundMat.color.setHex(0x2E1E1E); // Very dark rich dirt
-            }
+            const normalMat = new THREE.MeshPhongMaterial({ color: currentData.color });
 
-            // 3. Plant 50 new crops
             for(let i = 0; i < 50; i++) {
-                const isGold = Math.random() < 0.2; // 20% chance
-                const crop = new THREE.Mesh(cropGeo, isGold ? goldMat : normalMat);
+                const isGold = Math.random() < 0.2;
+                const crop = new THREE.Mesh(currentData.geo, isGold ? goldMat : normalMat);
                 
-                crop.userData = { isGold: isGold, level: currentGardenLevel }; 
+                crop.userData = { isGold: isGold }; 
                 
-                if (currentGardenLevel === 1) crop.rotation.x = Math.PI; // Cones point down
-                crop.position.set((Math.random() - 0.5) * 30, -0.3, (Math.random() - 0.5) * 20);
+                // Shape adjustments based on crop type
+                if (currentData.name === "Carrot") {
+                    crop.rotation.x = Math.PI; 
+                } else if (currentData.name === "Banana") {
+                    crop.rotation.z = Math.PI / 4; // Tilt bananas slightly
+                }
+
+                crop.position.set((Math.random() - 0.5) * 30, -0.2, (Math.random() - 0.5) * 20);
                 
-                const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), leafMat);
-                leaf.position.y = (currentGardenLevel === 1) ? -1.0 : 0.6; // Adjust leaf position
-                crop.add(leaf);
+                // Add leaves (skip leaves for Bananas to make them look cleaner)
+                if (currentData.name !== "Banana") {
+                    const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), leafMat);
+                    leaf.position.y = (currentData.name === "Carrot") ? -1.0 : 0.6;
+                    crop.add(leaf);
+                }
 
                 scene.add(crop);
                 cropsArray.push(crop);
             }
         }
         
-        // Plant the very first garden
-        plantGarden();
+        plantGarden(); // Start game
 
         camera.position.set(0, 8, 20);
         camera.lookAt(0, 0, 0);
@@ -183,8 +212,15 @@
         function animate3D() { requestAnimationFrame(animate3D); renderer.render(scene, camera); }
         animate3D();
 
+        // Handle Screen Resize (Mobile rotation support)
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
         // ==========================================
-        // 3. GAMEPLAY LOGIC (Harvest, Sell, Buy)
+        // 3. GAMEPLAY LOGIC 
         // ==========================================
         function harvestCrop() {
             if (cropsArray.length === 0) return;
@@ -196,12 +232,12 @@
             if (target.userData.isGold) {
                 inventory.gold++;
                 uiGold.innerText = inventory.gold;
-                statusBox.innerText = "✨ GOLD CROP! ✨";
+                statusBox.innerText = `✨ GOLD ${levels[currentLevel].name.toUpperCase()}! ✨`;
                 statusBox.style.color = "#FFD700";
             } else {
                 inventory.normal++;
                 uiNormal.innerText = inventory.normal;
-                statusBox.innerText = "🌱 Harvested!";
+                statusBox.innerText = `🌱 ${levels[currentLevel].name} Harvested!`;
                 statusBox.style.color = "white";
             }
 
@@ -213,11 +249,10 @@
         function sellItems() {
             if (inventory.normal === 0 && inventory.gold === 0) return;
 
-            // Higher level gardens give more money per crop
-            const normalPrice = 5 * currentGardenLevel;
-            const goldPrice = 50 * currentGardenLevel;
+            const basePrice = levels[currentLevel].price;
+            const goldPrice = basePrice * 10; // Gold is always 10x more valuable
             
-            const profit = (inventory.normal * normalPrice) + (inventory.gold * goldPrice);
+            const profit = (inventory.normal * basePrice) + (inventory.gold * goldPrice);
             money += profit;
             
             uiMoney.innerText = money;
@@ -229,34 +264,43 @@
         }
 
         function buyGarden() {
-            if (money >= nextGardenCost) {
-                // Deduct money
-                money -= nextGardenCost;
+            const upgradeCost = levels[currentLevel].upgradeCost;
+
+            if (upgradeCost === null) {
+                statusBox.innerText = "You are at MAX LEVEL!";
+                return;
+            }
+
+            if (money >= upgradeCost) {
+                money -= upgradeCost;
                 uiMoney.innerText = money;
                 
-                // Upgrade stats
-                currentGardenLevel++;
-                nextGardenCost = nextGardenCost * 3; // Price triples each time!
+                currentLevel++; // Go to next level
+                const newData = levels[currentLevel];
                 
-                // Update UI
-                uiLevel.innerText = currentGardenLevel;
-                uiCost.innerText = nextGardenCost;
+                uiGardenName.innerText = newData.name;
                 
-                // Replant the 3D world!
+                if (newData.upgradeCost === null) {
+                    buyZone.innerHTML = "MAX LEVEL<br>REACHED!";
+                    buyZone.style.background = "gold";
+                } else {
+                    uiCost.innerText = newData.upgradeCost;
+                }
+                
                 plantGarden();
 
-                statusBox.innerText = `UPGRADED TO LEVEL ${currentGardenLevel}! 🏡`;
+                statusBox.innerText = `UPGRADED TO ${newData.name.toUpperCase()}! 🏡`;
                 statusBox.style.color = "#00FFFF";
-                document.getElementById('buy-zone').style.background = "#00FFFF";
-                setTimeout(() => document.getElementById('buy-zone').style.background = "rgba(50, 100, 255, 0.8)", 500);
+                buyZone.style.boxShadow = "0 0 30px #00FFFF";
+                setTimeout(() => buyZone.style.boxShadow = "0 0 15px rgba(0,100,255,0.5)", 500);
             } else {
-                statusBox.innerText = `Not enough money! Need $${nextGardenCost}`;
+                statusBox.innerText = `Need $${upgradeCost} to upgrade!`;
                 statusBox.style.color = "red";
             }
         }
 
         // ==========================================
-        // 4. MEDIAPIPE AI (Body & Cursor Tracking)
+        // 4. MEDIAPIPE AI 
         // ==========================================
         const videoElement = document.querySelector('.input_video');
         const pose = new Pose({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
@@ -271,12 +315,14 @@
 
             if (wristsY > hipsY + 0.1) {
                 isReachingDown = true;
+                document.getElementById('instruction-bar').style.background = "#00FF55"; // Turns green when squatting
             } else if (wristsY < hipsY - 0.1 && isReachingDown) {
                 isReachingDown = false;
+                document.getElementById('instruction-bar').style.background = "rgba(255, 165, 0, 0.9)"; // Reset
                 harvestCrop();
             }
 
-            // 2. UI CURSOR LOGIC (Right Wrist)
+            // 2. UI CURSOR LOGIC 
             const rightWrist = results.poseLandmarks[15];
             const cursorX = (1 - rightWrist.x) * window.innerWidth;
             const cursorY = rightWrist.y * window.innerHeight;
@@ -285,28 +331,30 @@
             cursorEl.style.left = `${cursorX}px`;
             cursorEl.style.top = `${cursorY}px`;
 
-            // Helper function to check hover logic
             function checkHover(zoneId, barEl, timerObj, actionFunc) {
                 const btn = document.getElementById(zoneId).getBoundingClientRect();
                 if (cursorX > btn.left && cursorX < btn.right && cursorY > btn.top && cursorY < btn.bottom) {
-                    timerObj.val += 2; 
+                    timerObj.val += 3; // Fill slightly faster for mobile ease
                     if (timerObj.val >= 100) {
                         actionFunc();
-                        timerObj.val = 0; // Reset after trigger
+                        timerObj.val = 0; 
                     }
                 } else {
                     if (timerObj.val > 0) timerObj.val -= 5;
                 }
                 if (timerObj.val < 0) timerObj.val = 0;
-                barEl.style.width = `${timerObj.val}%`;
+                if (barEl) barEl.style.width = `${timerObj.val}%`;
             }
 
-            // We use objects to pass the timers by reference
             let sellTimerWrapper = { val: sellHoverTimer };
             let buyTimerWrapper = { val: buyHoverTimer };
 
             checkHover('sell-zone', sellBar, sellTimerWrapper, sellItems);
-            checkHover('buy-zone', buyBar, buyTimerWrapper, buyGarden);
+            
+            // Only check buy hover if not max level
+            if (levels[currentLevel].upgradeCost !== null) {
+                checkHover('buy-zone', buyBar, buyTimerWrapper, buyGarden);
+            }
 
             sellHoverTimer = sellTimerWrapper.val;
             buyHoverTimer = buyTimerWrapper.val;
