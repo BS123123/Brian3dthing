@@ -30,18 +30,20 @@
             color: white; padding: 15px; border-radius: 8px; font-size: 20px; z-index: 3;
         }
 
-        /* The Sell Button */
-        #sell-zone {
-            position: absolute; top: 20px; right: 20px; width: 150px; height: 150px;
-            background: rgba(255, 50, 50, 0.8); border: 4px solid white; border-radius: 20px;
+        /* Interactive Buttons */
+        .btn-zone {
+            position: absolute; right: 20px; width: 150px; height: 130px;
+            border: 4px solid white; border-radius: 20px;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: white; font-size: 24px; font-weight: bold; z-index: 3;
-            box-shadow: 0 0 20px rgba(255,0,0,0.5); transition: background 0.2s;
+            color: white; font-size: 20px; font-weight: bold; z-index: 3; text-align: center;
         }
-        #sell-progress {
-            width: 80%; height: 20px; background: #222; border-radius: 10px; margin-top: 10px; overflow: hidden;
-        }
-        #sell-bar { width: 0%; height: 100%; background: #00FF55; }
+        #sell-zone { top: 20px; background: rgba(255, 50, 50, 0.8); box-shadow: 0 0 20px rgba(255,0,0,0.5); }
+        #buy-zone { top: 170px; background: rgba(50, 100, 255, 0.8); box-shadow: 0 0 20px rgba(0,100,255,0.5); }
+        
+        .progress-bg { width: 80%; height: 15px; background: #222; border-radius: 10px; margin-top: 10px; overflow: hidden; }
+        .progress-bar { width: 0%; height: 100%; }
+        #sell-bar { background: #00FF55; }
+        #buy-bar { background: #00FFFF; }
 
         /* The Hand Cursor */
         #cursor {
@@ -55,14 +57,20 @@
 <body>
 
     <div id="ui-layer">
+        <div class="stat">Garden Level: <span id="garden-level">1</span></div>
         <div class="stat money-text">Bank: $<span id="money">0</span></div>
-        <div class="stat">Normal Carrots: <span id="inv-normal">0</span></div>
-        <div class="stat gold-text">Gold Carrots: <span id="inv-gold">0</span></div>
+        <div class="stat">Normal Crops: <span id="inv-normal">0</span></div>
+        <div class="stat gold-text">Gold Crops: <span id="inv-gold">0</span></div>
     </div>
     
-    <div id="sell-zone">
+    <div id="sell-zone" class="btn-zone">
         SELL ALL
-        <div id="sell-progress"><div id="sell-bar"></div></div>
+        <div class="progress-bg"><div id="sell-bar" class="progress-bar"></div></div>
+    </div>
+
+    <div id="buy-zone" class="btn-zone">
+        NEW GARDEN<br>$<span id="garden-cost">250</span>
+        <div class="progress-bg"><div id="buy-bar" class="progress-bar"></div></div>
     </div>
 
     <div id="status-box">Loading AI...</div>
@@ -78,22 +86,30 @@
 
     <script>
         // ==========================================
-        // 1. GAME ECONOMY
+        // 1. GAME ECONOMY & PROGRESSION
         // ==========================================
         let inventory = { normal: 0, gold: 0 };
         let money = 0;
-        let hoverTimer = 0;
+        let currentGardenLevel = 1; // 1 = Carrots, 2 = Radishes, 3 = Eggplants
+        let nextGardenCost = 250;
+        
+        let sellHoverTimer = 0;
+        let buyHoverTimer = 0;
         let isReachingDown = false;
 
         const uiNormal = document.getElementById('inv-normal');
         const uiGold = document.getElementById('inv-gold');
         const uiMoney = document.getElementById('money');
+        const uiLevel = document.getElementById('garden-level');
+        const uiCost = document.getElementById('garden-cost');
         const statusBox = document.getElementById('status-box');
+        
         const sellBar = document.getElementById('sell-bar');
+        const buyBar = document.getElementById('buy-bar');
         const cursorEl = document.getElementById('cursor');
 
         // ==========================================
-        // 2. THREE.JS SETUP
+        // 2. THREE.JS SETUP & GENERATION
         // ==========================================
         const canvas = document.getElementById('threejs-canvas');
         const scene = new THREE.Scene();
@@ -106,40 +122,60 @@
         sun.position.set(10, 20, 10);
         scene.add(sun);
 
-        const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(80, 80), 
-            new THREE.MeshPhongMaterial({ color: 0x5C4033 })
-        );
+        const groundMat = new THREE.MeshPhongMaterial({ color: 0x5C4033 });
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), groundMat);
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // Materials
-        const carrotGeo = new THREE.ConeGeometry(0.4, 1.5, 12);
-        const normalMat = new THREE.MeshPhongMaterial({ color: 0xff8800 });
-        const goldMat = new THREE.MeshPhongMaterial({ color: 0xFFD700, shininess: 100, specular: 0xffffff }); // Shiny gold!
-        const leafGeo = new THREE.BoxGeometry(0.2, 0.8, 0.2);
+        let cropsArray = []; // Stores the active 3D plants
         const leafMat = new THREE.MeshPhongMaterial({ color: 0x228B22 });
 
-        const carrots = [];
+        function plantGarden() {
+            // 1. Clear old crops from the 3D scene
+            cropsArray.forEach(crop => scene.remove(crop));
+            cropsArray = [];
 
-        // Plant 50 carrots!
-        for(let i = 0; i < 50; i++) {
-            const isGold = Math.random() < 0.2; // 20% chance to be gold
-            const carrot = new THREE.Mesh(carrotGeo, isGold ? goldMat : normalMat);
-            
-            // Save data inside the 3D object so we know what we picked later
-            carrot.userData = { isGold: isGold }; 
-            
-            carrot.rotation.x = Math.PI; 
-            carrot.position.set((Math.random() - 0.5) * 30, -0.3, (Math.random() - 0.5) * 20);
-            
-            const leaf = new THREE.Mesh(leafGeo, leafMat);
-            leaf.position.y = -1.0; 
-            carrot.add(leaf);
+            // 2. Define geometry and colors based on garden level
+            let cropGeo, normalMat, goldMat;
+            goldMat = new THREE.MeshPhongMaterial({ color: 0xFFD700, shininess: 100, specular: 0xffffff }); // Always shiny
 
-            scene.add(carrot);
-            carrots.push(carrot);
+            if (currentGardenLevel === 1) { // Carrots
+                cropGeo = new THREE.ConeGeometry(0.4, 1.5, 12);
+                normalMat = new THREE.MeshPhongMaterial({ color: 0xff8800 }); // Orange
+                groundMat.color.setHex(0x5C4033); // Brown dirt
+            } 
+            else if (currentGardenLevel === 2) { // Radishes
+                cropGeo = new THREE.SphereGeometry(0.6, 12, 12);
+                normalMat = new THREE.MeshPhongMaterial({ color: 0xFF1493 }); // Deep Pink
+                groundMat.color.setHex(0x3B2F2F); // Darker dirt
+            } 
+            else { // Eggplants (Level 3+)
+                cropGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 12);
+                normalMat = new THREE.MeshPhongMaterial({ color: 0x800080 }); // Purple
+                groundMat.color.setHex(0x2E1E1E); // Very dark rich dirt
+            }
+
+            // 3. Plant 50 new crops
+            for(let i = 0; i < 50; i++) {
+                const isGold = Math.random() < 0.2; // 20% chance
+                const crop = new THREE.Mesh(cropGeo, isGold ? goldMat : normalMat);
+                
+                crop.userData = { isGold: isGold, level: currentGardenLevel }; 
+                
+                if (currentGardenLevel === 1) crop.rotation.x = Math.PI; // Cones point down
+                crop.position.set((Math.random() - 0.5) * 30, -0.3, (Math.random() - 0.5) * 20);
+                
+                const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), leafMat);
+                leaf.position.y = (currentGardenLevel === 1) ? -1.0 : 0.6; // Adjust leaf position
+                crop.add(leaf);
+
+                scene.add(crop);
+                cropsArray.push(crop);
+            }
         }
+        
+        // Plant the very first garden
+        plantGarden();
 
         camera.position.set(0, 8, 20);
         camera.lookAt(0, 0, 0);
@@ -148,25 +184,24 @@
         animate3D();
 
         // ==========================================
-        // 3. GAMEPLAY LOGIC (Harvest & Sell)
+        // 3. GAMEPLAY LOGIC (Harvest, Sell, Buy)
         // ==========================================
-        function harvestCarrot() {
-            if (carrots.length === 0) return;
+        function harvestCrop() {
+            if (cropsArray.length === 0) return;
 
-            const index = Math.floor(Math.random() * carrots.length);
-            const target = carrots[index];
-            carrots.splice(index, 1);
+            const index = Math.floor(Math.random() * cropsArray.length);
+            const target = cropsArray[index];
+            cropsArray.splice(index, 1);
 
-            // Add to inventory based on type
             if (target.userData.isGold) {
                 inventory.gold++;
                 uiGold.innerText = inventory.gold;
-                statusBox.innerText = "✨ GOLD CARROT! ✨";
+                statusBox.innerText = "✨ GOLD CROP! ✨";
                 statusBox.style.color = "#FFD700";
             } else {
                 inventory.normal++;
                 uiNormal.innerText = inventory.normal;
-                statusBox.innerText = "🥕 Harvested!";
+                statusBox.innerText = "🌱 Harvested!";
                 statusBox.style.color = "white";
             }
 
@@ -176,23 +211,48 @@
         }
 
         function sellItems() {
-            if (inventory.normal === 0 && inventory.gold === 0) return; // Nothing to sell
+            if (inventory.normal === 0 && inventory.gold === 0) return;
 
-            // Calculate profit ($5 for normal, $50 for gold)
-            const profit = (inventory.normal * 5) + (inventory.gold * 50);
+            // Higher level gardens give more money per crop
+            const normalPrice = 5 * currentGardenLevel;
+            const goldPrice = 50 * currentGardenLevel;
+            
+            const profit = (inventory.normal * normalPrice) + (inventory.gold * goldPrice);
             money += profit;
             
-            // Update UI
             uiMoney.innerText = money;
-            inventory.normal = 0;
-            inventory.gold = 0;
-            uiNormal.innerText = 0;
-            uiGold.innerText = 0;
+            inventory.normal = 0; inventory.gold = 0;
+            uiNormal.innerText = 0; uiGold.innerText = 0;
 
             statusBox.innerText = `SOLD for $${profit}! 💰`;
             statusBox.style.color = "#00FF55";
-            document.getElementById('sell-zone').style.background = "#00FF55"; // Flash green
-            setTimeout(() => document.getElementById('sell-zone').style.background = "rgba(255, 50, 50, 0.8)", 500);
+        }
+
+        function buyGarden() {
+            if (money >= nextGardenCost) {
+                // Deduct money
+                money -= nextGardenCost;
+                uiMoney.innerText = money;
+                
+                // Upgrade stats
+                currentGardenLevel++;
+                nextGardenCost = nextGardenCost * 3; // Price triples each time!
+                
+                // Update UI
+                uiLevel.innerText = currentGardenLevel;
+                uiCost.innerText = nextGardenCost;
+                
+                // Replant the 3D world!
+                plantGarden();
+
+                statusBox.innerText = `UPGRADED TO LEVEL ${currentGardenLevel}! 🏡`;
+                statusBox.style.color = "#00FFFF";
+                document.getElementById('buy-zone').style.background = "#00FFFF";
+                setTimeout(() => document.getElementById('buy-zone').style.background = "rgba(50, 100, 255, 0.8)", 500);
+            } else {
+                statusBox.innerText = `Not enough money! Need $${nextGardenCost}`;
+                statusBox.style.color = "red";
+            }
         }
 
         // ==========================================
@@ -205,7 +265,7 @@
         pose.onResults((results) => {
             if (!results.poseLandmarks) { cursorEl.style.display = "none"; return; }
 
-            // 1. HARVESTING LOGIC (Squatting/Pulling)
+            // 1. HARVESTING (Squatting/Pulling)
             const wristsY = (results.poseLandmarks[15].y + results.poseLandmarks[16].y) / 2; 
             const hipsY = (results.poseLandmarks[23].y + results.poseLandmarks[24].y) / 2;
 
@@ -213,40 +273,43 @@
                 isReachingDown = true;
             } else if (wristsY < hipsY - 0.1 && isReachingDown) {
                 isReachingDown = false;
-                harvestCarrot();
+                harvestCrop();
             }
 
-            // 2. SELLING LOGIC (Hand Cursor over button)
-            // We track your RIGHT wrist (landmark 15). Because the video is mirrored, we invert X.
+            // 2. UI CURSOR LOGIC (Right Wrist)
             const rightWrist = results.poseLandmarks[15];
             const cursorX = (1 - rightWrist.x) * window.innerWidth;
             const cursorY = rightWrist.y * window.innerHeight;
 
-            // Move the red HTML dot to your hand's position
             cursorEl.style.display = "block";
             cursorEl.style.left = `${cursorX}px`;
             cursorEl.style.top = `${cursorY}px`;
 
-            // Check if cursor is inside the Sell Button
-            const btn = document.getElementById('sell-zone').getBoundingClientRect();
-            if (cursorX > btn.left && cursorX < btn.right && cursorY > btn.top && cursorY < btn.bottom) {
-                hoverTimer += 2; // Increase progress
-                if (hoverTimer > 100) hoverTimer = 100;
-                
-                sellBar.style.width = `${hoverTimer}%`;
-
-                // If bar is full, trigger the sell function
-                if (hoverTimer === 100) {
-                    sellItems();
-                    hoverTimer = 0; // Reset bar immediately
-                    sellBar.style.width = "0%";
+            // Helper function to check hover logic
+            function checkHover(zoneId, barEl, timerObj, actionFunc) {
+                const btn = document.getElementById(zoneId).getBoundingClientRect();
+                if (cursorX > btn.left && cursorX < btn.right && cursorY > btn.top && cursorY < btn.bottom) {
+                    timerObj.val += 2; 
+                    if (timerObj.val >= 100) {
+                        actionFunc();
+                        timerObj.val = 0; // Reset after trigger
+                    }
+                } else {
+                    if (timerObj.val > 0) timerObj.val -= 5;
                 }
-            } else {
-                // If you move your hand away, reset the bar quickly
-                if (hoverTimer > 0) hoverTimer -= 5;
-                if (hoverTimer < 0) hoverTimer = 0;
-                sellBar.style.width = `${hoverTimer}%`;
+                if (timerObj.val < 0) timerObj.val = 0;
+                barEl.style.width = `${timerObj.val}%`;
             }
+
+            // We use objects to pass the timers by reference
+            let sellTimerWrapper = { val: sellHoverTimer };
+            let buyTimerWrapper = { val: buyHoverTimer };
+
+            checkHover('sell-zone', sellBar, sellTimerWrapper, sellItems);
+            checkHover('buy-zone', buyBar, buyTimerWrapper, buyGarden);
+
+            sellHoverTimer = sellTimerWrapper.val;
+            buyHoverTimer = buyTimerWrapper.val;
         });
 
         const cameraUtils = new Camera(videoElement, { onFrame: async () => { await pose.send({image: videoElement}); }, width: 640, height: 480 });
