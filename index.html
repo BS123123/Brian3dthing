@@ -264,7 +264,7 @@
             if (inventory.normal === 0 && inventory.gold === 0) return;
 
             const basePrice = levels[currentLevel].price;
-            const goldPrice = basePrice * 10; 
+            const goldPrice = basePrice * 2; // Gold is exactly 2x the base price
             
             const profit = (inventory.normal * basePrice) + (inventory.gold * goldPrice);
             money += profit;
