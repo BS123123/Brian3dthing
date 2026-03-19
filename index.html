@@ -3,49 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Full Body 3D Farming</title>
+    <title>Farming Tycoon 3D</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, sans-serif; }
         
-        /* 3D Game Canvas */
-        #threejs-canvas {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;
-        }
+        #threejs-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
 
-        /* Picture-in-Picture Webcam */
         .input_video {
             position: absolute; bottom: 20px; right: 20px;
-            width: 320px; height: 240px;
-            object-fit: cover; transform: scaleX(-1);
-            border: 4px solid #fff; border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            z-index: 3;
+            width: 240px; height: 180px; object-fit: cover; transform: scaleX(-1);
+            border: 3px solid #fff; border-radius: 12px; z-index: 3;
         }
 
-        /* UI Overlays */
+        /* UI Styling */
         #ui-layer {
-            position: absolute; top: 20px; left: 20px;
-            color: white; z-index: 3;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            position: absolute; top: 20px; left: 20px; color: white; z-index: 3;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8); pointer-events: none;
         }
-        
-        #score-display { font-size: 32px; font-weight: bold; }
-        
+        .stat { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+        .gold-text { color: #FFD700; }
+        .money-text { color: #00FF55; font-size: 36px; }
+
+        /* Status Box */
         #status-box {
-            position: absolute; bottom: 20px; left: 20px;
-            background: rgba(0, 0, 0, 0.7); color: white;
-            padding: 15px 25px; border-radius: 8px;
-            font-size: 24px; font-weight: bold; z-index: 3;
+            position: absolute; bottom: 20px; left: 20px; background: rgba(0, 0, 0, 0.7);
+            color: white; padding: 15px; border-radius: 8px; font-size: 20px; z-index: 3;
+        }
+
+        /* The Sell Button */
+        #sell-zone {
+            position: absolute; top: 20px; right: 20px; width: 150px; height: 150px;
+            background: rgba(255, 50, 50, 0.8); border: 4px solid white; border-radius: 20px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; font-size: 24px; font-weight: bold; z-index: 3;
+            box-shadow: 0 0 20px rgba(255,0,0,0.5); transition: background 0.2s;
+        }
+        #sell-progress {
+            width: 80%; height: 20px; background: #222; border-radius: 10px; margin-top: 10px; overflow: hidden;
+        }
+        #sell-bar { width: 0%; height: 100%; background: #00FF55; }
+
+        /* The Hand Cursor */
+        #cursor {
+            position: absolute; top: 50%; left: 50%; width: 25px; height: 25px;
+            background: red; border: 3px solid white; border-radius: 50%;
+            transform: translate(-50%, -50%); z-index: 10; pointer-events: none;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5); display: none;
         }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
-        <div id="score-display">Carrots Harvested: <span id="score">0</span> / 10</div>
+        <div class="stat money-text">Bank: $<span id="money">0</span></div>
+        <div class="stat">Normal Carrots: <span id="inv-normal">0</span></div>
+        <div class="stat gold-text">Gold Carrots: <span id="inv-gold">0</span></div>
     </div>
     
-    <div id="status-box">Loading AI Camera... Please wait.</div>
+    <div id="sell-zone">
+        SELL ALL
+        <div id="sell-progress"><div id="sell-bar"></div></div>
+    </div>
+
+    <div id="status-box">Loading AI...</div>
+    <div id="cursor"></div>
 
     <video class="input_video" autoplay playsinline></video>
     <canvas id="threejs-canvas"></canvas>
@@ -57,16 +78,22 @@
 
     <script>
         // ==========================================
-        // 1. GAME VARIABLES
+        // 1. GAME ECONOMY
         // ==========================================
-        let score = 0;
-        const totalCarrots = 10;
-        const scoreEl = document.getElementById('score');
-        const statusBox = document.getElementById('status-box');
+        let inventory = { normal: 0, gold: 0 };
+        let money = 0;
+        let hoverTimer = 0;
         let isReachingDown = false;
 
+        const uiNormal = document.getElementById('inv-normal');
+        const uiGold = document.getElementById('inv-gold');
+        const uiMoney = document.getElementById('money');
+        const statusBox = document.getElementById('status-box');
+        const sellBar = document.getElementById('sell-bar');
+        const cursorEl = document.getElementById('cursor');
+
         // ==========================================
-        // 2. THREE.JS SETUP (The 3D Farm)
+        // 2. THREE.JS SETUP
         // ==========================================
         const canvas = document.getElementById('threejs-canvas');
         const scene = new THREE.Scene();
@@ -74,149 +101,156 @@
         const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
 
-        // Lighting
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
         const sun = new THREE.DirectionalLight(0xffffff, 0.8);
         sun.position.set(10, 20, 10);
         scene.add(sun);
 
-        // Ground
-        const groundGeo = new THREE.PlaneGeometry(50, 50);
-        const groundMat = new THREE.MeshPhongMaterial({ color: 0x5C4033 }); // Dirt
-        const ground = new THREE.Mesh(groundGeo, groundMat);
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(80, 80), 
+            new THREE.MeshPhongMaterial({ color: 0x5C4033 })
+        );
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // Planting Carrots
-        const carrots = [];
-        const carrotGeo = new THREE.ConeGeometry(0.5, 2, 16);
-        const carrotMat = new THREE.MeshPhongMaterial({ color: 0xff8800 }); 
-        const leafGeo = new THREE.BoxGeometry(0.2, 1, 0.2);
+        // Materials
+        const carrotGeo = new THREE.ConeGeometry(0.4, 1.5, 12);
+        const normalMat = new THREE.MeshPhongMaterial({ color: 0xff8800 });
+        const goldMat = new THREE.MeshPhongMaterial({ color: 0xFFD700, shininess: 100, specular: 0xffffff }); // Shiny gold!
+        const leafGeo = new THREE.BoxGeometry(0.2, 0.8, 0.2);
         const leafMat = new THREE.MeshPhongMaterial({ color: 0x228B22 });
 
-        for(let i = 0; i < totalCarrots; i++) {
-            const carrot = new THREE.Mesh(carrotGeo, carrotMat);
+        const carrots = [];
+
+        // Plant 50 carrots!
+        for(let i = 0; i < 50; i++) {
+            const isGold = Math.random() < 0.2; // 20% chance to be gold
+            const carrot = new THREE.Mesh(carrotGeo, isGold ? goldMat : normalMat);
+            
+            // Save data inside the 3D object so we know what we picked later
+            carrot.userData = { isGold: isGold }; 
+            
             carrot.rotation.x = Math.PI; 
-            carrot.position.set((Math.random() - 0.5) * 15, -0.5, (Math.random() - 0.5) * 15);
+            carrot.position.set((Math.random() - 0.5) * 30, -0.3, (Math.random() - 0.5) * 20);
             
             const leaf = new THREE.Mesh(leafGeo, leafMat);
-            leaf.position.y = -1.2; 
+            leaf.position.y = -1.0; 
             carrot.add(leaf);
 
             scene.add(carrot);
             carrots.push(carrot);
         }
 
-        camera.position.set(0, 5, 15);
+        camera.position.set(0, 8, 20);
         camera.lookAt(0, 0, 0);
 
-        // Render Loop
-        function animate3D() {
-            requestAnimationFrame(animate3D);
-            renderer.render(scene, camera);
-        }
+        function animate3D() { requestAnimationFrame(animate3D); renderer.render(scene, camera); }
         animate3D();
 
-        // Handle Resize
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
         // ==========================================
-        // 3. GAMEPLAY LOGIC
+        // 3. GAMEPLAY LOGIC (Harvest & Sell)
         // ==========================================
         function harvestCarrot() {
-            if (carrots.length === 0) {
-                statusBox.innerText = "Farm is empty! Refresh to play again.";
+            if (carrots.length === 0) return;
+
+            const index = Math.floor(Math.random() * carrots.length);
+            const target = carrots[index];
+            carrots.splice(index, 1);
+
+            // Add to inventory based on type
+            if (target.userData.isGold) {
+                inventory.gold++;
+                uiGold.innerText = inventory.gold;
+                statusBox.innerText = "✨ GOLD CARROT! ✨";
+                statusBox.style.color = "#FFD700";
+            } else {
+                inventory.normal++;
+                uiNormal.innerText = inventory.normal;
+                statusBox.innerText = "🥕 Harvested!";
                 statusBox.style.color = "white";
-                return;
             }
 
-            // Pick a random carrot
-            const index = Math.floor(Math.random() * carrots.length);
-            const targetCarrot = carrots[index];
-            carrots.splice(index, 1); // Remove from array
+            gsap.to(target.position, { y: 5, duration: 0.5, ease: "back.out(1.7)" });
+            gsap.to(target.rotation, { z: Math.PI * 2, duration: 0.8 });
+            gsap.to(target.scale, { x: 0, y: 0, z: 0, duration: 0.3, delay: 0.5, onComplete: () => scene.remove(target) });
+        }
 
-            // Animate flying out
-            gsap.to(targetCarrot.position, { y: 5, duration: 0.5, ease: "back.out(1.7)" });
-            gsap.to(targetCarrot.rotation, { z: Math.PI * 2, duration: 0.8 });
-            gsap.to(targetCarrot.scale, { 
-                x: 0, y: 0, z: 0, duration: 0.3, delay: 0.5,
-                onComplete: () => scene.remove(targetCarrot) 
-            });
+        function sellItems() {
+            if (inventory.normal === 0 && inventory.gold === 0) return; // Nothing to sell
 
-            score++;
-            scoreEl.innerText = score;
+            // Calculate profit ($5 for normal, $50 for gold)
+            const profit = (inventory.normal * 5) + (inventory.gold * 50);
+            money += profit;
+            
+            // Update UI
+            uiMoney.innerText = money;
+            inventory.normal = 0;
+            inventory.gold = 0;
+            uiNormal.innerText = 0;
+            uiGold.innerText = 0;
+
+            statusBox.innerText = `SOLD for $${profit}! 💰`;
+            statusBox.style.color = "#00FF55";
+            document.getElementById('sell-zone').style.background = "#00FF55"; // Flash green
+            setTimeout(() => document.getElementById('sell-zone').style.background = "rgba(255, 50, 50, 0.8)", 500);
         }
 
         // ==========================================
-        // 4. MEDIAPIPE FULL BODY TRACKING
+        // 4. MEDIAPIPE AI (Body & Cursor Tracking)
         // ==========================================
         const videoElement = document.querySelector('.input_video');
-        
-        const pose = new Pose({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-        }});
-
-        pose.setOptions({
-            modelComplexity: 1, smoothLandmarks: true,
-            minDetectionConfidence: 0.6, minTrackingConfidence: 0.6
-        });
+        const pose = new Pose({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
+        pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
 
         pose.onResults((results) => {
-            if (!results.poseLandmarks) {
-                if (statusBox.innerText !== "Farm is empty! Refresh to play again.") {
-                    statusBox.innerText = "Step back! Show your whole body.";
-                    statusBox.style.color = "#ffcc00";
-                }
-                return;
-            }
+            if (!results.poseLandmarks) { cursorEl.style.display = "none"; return; }
 
-            // Get body landmarks (Y: 0 is top of screen, 1 is bottom)
+            // 1. HARVESTING LOGIC (Squatting/Pulling)
             const wristsY = (results.poseLandmarks[15].y + results.poseLandmarks[16].y) / 2; 
             const hipsY = (results.poseLandmarks[23].y + results.poseLandmarks[24].y) / 2;
 
-            // Gesture: Reaching down past hips
             if (wristsY > hipsY + 0.1) {
-                if (!isReachingDown) {
-                    isReachingDown = true;
-                    statusBox.innerText = "Reaching down... now PULL UP!";
-                    statusBox.style.color = "#00ffff";
-                }
-            } 
-            // Gesture: Pulling hands back up above hips
-            else if (wristsY < hipsY - 0.1 && isReachingDown) {
+                isReachingDown = true;
+            } else if (wristsY < hipsY - 0.1 && isReachingDown) {
                 isReachingDown = false;
-                
-                // TRIGGER THE GAME MECHANIC
                 harvestCarrot();
+            }
+
+            // 2. SELLING LOGIC (Hand Cursor over button)
+            // We track your RIGHT wrist (landmark 15). Because the video is mirrored, we invert X.
+            const rightWrist = results.poseLandmarks[15];
+            const cursorX = (1 - rightWrist.x) * window.innerWidth;
+            const cursorY = rightWrist.y * window.innerHeight;
+
+            // Move the red HTML dot to your hand's position
+            cursorEl.style.display = "block";
+            cursorEl.style.left = `${cursorX}px`;
+            cursorEl.style.top = `${cursorY}px`;
+
+            // Check if cursor is inside the Sell Button
+            const btn = document.getElementById('sell-zone').getBoundingClientRect();
+            if (cursorX > btn.left && cursorX < btn.right && cursorY > btn.top && cursorY < btn.bottom) {
+                hoverTimer += 2; // Increase progress
+                if (hoverTimer > 100) hoverTimer = 100;
                 
-                statusBox.innerText = "🥕 CARROT PULLED! 🥕";
-                statusBox.style.color = "#00ffcc";
-                
-                setTimeout(() => { 
-                    if (carrots.length > 0) {
-                        statusBox.innerText = "Ready. Reach down to harvest."; 
-                        statusBox.style.color = "white"; 
-                    }
-                }, 1000);
-            } 
-            // Default resting state
-            else if (!isReachingDown && statusBox.innerText !== "🥕 CARROT PULLED! 🥕" && carrots.length > 0) {
-                statusBox.innerText = "Ready. Reach down to harvest.";
-                statusBox.style.color = "white";
+                sellBar.style.width = `${hoverTimer}%`;
+
+                // If bar is full, trigger the sell function
+                if (hoverTimer === 100) {
+                    sellItems();
+                    hoverTimer = 0; // Reset bar immediately
+                    sellBar.style.width = "0%";
+                }
+            } else {
+                // If you move your hand away, reset the bar quickly
+                if (hoverTimer > 0) hoverTimer -= 5;
+                if (hoverTimer < 0) hoverTimer = 0;
+                sellBar.style.width = `${hoverTimer}%`;
             }
         });
 
-        // Start Webcam
-        const cameraUtils = new Camera(videoElement, {
-            onFrame: async () => { await pose.send({image: videoElement}); },
-            width: 640, height: 480
-        });
+        const cameraUtils = new Camera(videoElement, { onFrame: async () => { await pose.send({image: videoElement}); }, width: 640, height: 480 });
         cameraUtils.start();
-
     </script>
 </body>
 </html>
