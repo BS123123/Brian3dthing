@@ -63,7 +63,7 @@
         let score = 0;
         let lives = 3;
         let isGameOver = false;
-        let baseSpeed = 0.05; // Increases as you play
+        let baseSpeed = 0.01; // Increases as you play
 
         const scoreEl = document.getElementById('score');
         const livesEl = document.getElementById('lives');
@@ -103,7 +103,7 @@
         function createItem(type) {
             const isGood = type === 'good';
             const mesh = new THREE.Mesh(isGood ? goodGeo : badGeo, isGood ? goodMat : badMat);
-            mesh.userData = { type: type, speedOffset: Math.random() * 0.05 };
+            mesh.userData = { type: type, speedOffset: Math.random() * 0.01 };
             resetItem(mesh);
             scene.add(mesh);
             items.push(mesh);
